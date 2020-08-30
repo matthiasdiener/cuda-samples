@@ -63,6 +63,44 @@
 #include <string>
 #include "matrixMul.h"
 
+
+class GpuTimer {
+
+public:
+      CUevent start;
+      CUevent stop;
+
+      GpuTimer()
+      {
+            checkCudaErrors(cuEventCreate(&start, CU_EVENT_DEFAULT));
+            checkCudaErrors(cuEventCreate(&stop, CU_EVENT_DEFAULT));
+      }
+
+      ~GpuTimer()
+      {
+            checkCudaErrors(cuEventDestroy(start));
+            checkCudaErrors(cuEventDestroy(stop));
+      }
+
+      void Start()
+      {
+            checkCudaErrors(cuEventRecord(start, 0));
+      }
+
+      void Stop()
+      {
+            checkCudaErrors(cuEventRecord(stop, 0));
+      }
+
+      float Elapsed()
+      {
+            float elapsed;
+            checkCudaErrors(cuEventSynchronize(stop));
+            checkCudaErrors(cuEventElapsedTime(&elapsed, start, stop));
+            return elapsed;
+      }
+};
+
 // includes, CUDA
 const bool use_64bit_memory_address = false;
 
@@ -174,12 +212,18 @@ void runTest(int argc, char **argv) {
   // allocate mem for the result on host side
   float *h_C = reinterpret_cast<float *>(malloc(mem_size_C));
 
+  for(int i=0; i<10; i++) {
   // create and start timer
   StopWatchInterface *timer = NULL;
   sdkCreateTimer(&timer);
 
   // start the timer
   sdkStartTimer(&timer);
+
+  GpuTimer gputimer = GpuTimer();
+
+  gputimer.Start();
+
 
   // There are two ways to launch CUDA kernels via the Driver API.
   // In this CUDA Sample, we illustrate both ways to pass parameters
@@ -255,13 +299,16 @@ void runTest(int argc, char **argv) {
         reinterpret_cast<void **>(&kernel_launch_config)));
   }
 
+  gputimer.Stop();
+
   // copy result from device to host
   checkCudaErrors(cuMemcpyDtoH(reinterpret_cast<void *>(h_C), d_C, mem_size_C));
 
   // stop and destroy timer
   sdkStopTimer(&timer);
-  printf("Processing time: %f (ms)\n", sdkGetTimerValue(&timer));
+  printf("Processing time: %f (ms) %f (ms)\n", sdkGetTimerValue(&timer), gputimer.Elapsed());
   sdkDeleteTimer(&timer);
+}
 
   printf("Checking computed result for correctness: ");
   bool correct = true;
